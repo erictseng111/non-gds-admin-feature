@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>非GDS套裝行程日期設定 (React Prototype)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- React & Babel for in-browser JSX transformation -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .date-tag, .modal-overlay {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .modal-content {
+            animation: fadeInScale 0.3s ease-in-out;
+        }
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .calendar-popup {
+            z-index: 60; /* Higher than modal */
+            width: 42rem;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+    <div id="root" class="w-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- Helper Functions ---
+        const classNames = (...classes) => classes.filter(Boolean).join(' ');
+        
+        // BUG FIX: Switched to a timezone-safe date formatting function.
+        const formatDate = (date) => {
+            if (!date) return '';
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // --- Reusable DatePicker Component ---
+        const DatePicker = ({ onSelect, initialText, displayValue, initialViewDate, selectionMode = 'range', isDateEnabled = () => true }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [viewDate, setViewDate] = useState(initialViewDate || new Date());
+            const [startDate, setStartDate] = useState(null);
+            const [endDate, setEndDate] = useState(null);
+            const [hoverDate, setHoverDate] = useState(null);
+            const pickerRef = useRef(null);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            useEffect(() => {
+                if (isOpen) {
+                    setViewDate(initialViewDate || new Date());
+                    setStartDate(null);
+                    setEndDate(null);
+                }
+            }, [isOpen, initialViewDate]);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (pickerRef.current && !pickerRef.current.contains(event.target)) setIsOpen(false);
+                };
+                document.addEventListener("mousedown", handleClickOutside);
+                return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, []);
+
+            const handleDayClick = (day) => {
+                if (!day || !isDateEnabled(day)) return;
+                if (selectionMode === 'single') {
+                    onSelect(day);
+                    setIsOpen(false);
+                } else {
+                    if (!startDate || (startDate && endDate)) {
+                        setStartDate(day);
+                        setEndDate(null);
+                    } else {
+                        day < startDate ? onSelect(day, startDate) : onSelect(startDate, day);
+                        setIsOpen(false);
+                    }
+                }
+            };
+
+            const generateMonthDays = (date) => {
+                const year = date.getFullYear(), month = date.getMonth();
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const days = Array(firstDay).fill(null);
+                for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+                return days;
+            };
+
+            const renderDay = (day) => {
+                if (!day) return <div key={Math.random()}></div>;
+                const time = day.getTime();
+                const isToday = time === today.getTime();
+                const enabled = isDateEnabled(day);
+                const isStart = startDate && time === startDate.getTime();
+                const isEnd = endDate && time === endDate.getTime();
+                let start = startDate, end = hoverDate || endDate;
+                if (start && end && end < start) [start, end] = [end, start];
+                const inRange = start && end && time > start.getTime() && time < end.getTime();
+                const classes = classNames('h-10 w-10 flex items-center justify-center rounded-full transition-colors duration-150', isToday && 'border border-blue-500', enabled ? 'cursor-pointer' : 'text-gray-300 cursor-not-allowed', enabled && (isStart || isEnd) && 'bg-blue-600 text-white', enabled && inRange && 'bg-blue-100 text-blue-800 rounded-none', enabled && !(isStart || isEnd || inRange) && 'hover:bg-blue-100');
+                return <div key={day.toString()} className={classes} onClick={() => handleDayClick(day)} onMouseEnter={() => (enabled && startDate && !endDate && setHoverDate(day))}>{day.getDate()}</div>;
+            };
+
+            const month1 = viewDate, month2 = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
+            return (
+                <div className="w-full relative" ref={pickerRef}>
+                    <div onClick={() => setIsOpen(!isOpen)} className="w-full bg-white text-left px-3 py-2 border border-gray-300 rounded-md shadow-sm cursor-pointer flex items-center justify-between">
+                        <span className={classNames(displayValue ? 'text-gray-800' : 'text-gray-500')}>{displayValue || initialText}</span>
+                        <svg className="w-5 h-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
+                    </div>
+                    {isOpen && (
+                        <div className="calendar-popup absolute top-full left-0 mt-2 bg-white border rounded-lg shadow-xl p-4">
+                            <div className="flex items-center justify-between mb-4 px-2">
+                                <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="p-2 rounded-full hover:bg-gray-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                                <div className="flex-grow flex justify-around">
+                                    <div className="font-semibold text-center">{month1.getFullYear()} 年 {month1.getMonth() + 1} 月</div>
+                                    <div className="font-semibold text-center">{month2.getFullYear()} 年 {month2.getMonth() + 1} 月</div>
+                                </div>
+                                <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} className="p-2 rounded-full hover:bg-gray-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg></button>
+                            </div>
+                            <div className="flex gap-8" onMouseLeave={() => setHoverDate(null)}>
+                                {[month1, month2].map((m, i) => <div key={i} className="w-1/2"><div className="grid grid-cols-7 text-center text-xs text-gray-500 font-semibold mb-2">{['日','一','二','三','四','五','六'].map(d => <span key={d}>{d}</span>)}</div><div className="grid grid-cols-7 text-center">{generateMonthDays(m).map(renderDay)}</div></div>)}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- Frontend Preview Component ---
+        const FrontendPreview = ({ settings }) => {
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [selectedDates, setSelectedDates] = useState({});
+            const { restrictionType, mainRange, singleDate, multiRanges, preferences } = settings;
+
+            useEffect(() => setSelectedDates({}), [settings]);
+
+            const numberOfPreferences = useMemo(() => preferences.filter(Boolean).length, [preferences]);
+            const { isDateEnabled, initialViewDate } = useMemo(() => {
+                let checkFunc = () => false, initialDate = new Date();
+                
+                const dateWithoutTime = (d) => {
+                    if (!d) return null;
+                    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                };
+
+                switch (restrictionType) {
+                    case 'range':
+                        if (mainRange.start && mainRange.end) {
+                            const start = dateWithoutTime(mainRange.start), end = dateWithoutTime(mainRange.end);
+                            checkFunc = d => { const time = dateWithoutTime(d); return time >= start && time <= end; };
+                            initialDate = mainRange.start;
+                        } break;
+                    case 'single':
+                        if (singleDate) {
+                            const single = dateWithoutTime(singleDate);
+                            checkFunc = d => dateWithoutTime(d) === single;
+                            initialDate = singleDate;
+                        } break;
+                    case 'multiple':
+                        if (multiRanges.length > 0) {
+                            const ranges = multiRanges.map(r => ({ start: dateWithoutTime(r.start), end: dateWithoutTime(r.end) }));
+                            checkFunc = d => { const time = dateWithoutTime(d); return ranges.some(r => time >= r.start && time <= r.end); };
+                            initialDate = multiRanges[0].start;
+                        } break;
+                }
+                return { isDateEnabled: checkFunc, initialViewDate: initialDate };
+            }, [restrictionType, mainRange, singleDate, multiRanges]);
+
+            const handleDateSelect = (index, date) => setSelectedDates(prev => ({ ...prev, [index]: date }));
+
+            return (
+                <div className="w-full bg-gray-100 rounded-2xl p-6 sm:p-10 space-y-8 sticky top-8 flex flex-col items-center justify-center min-h-[600px]">
+                    <div className="text-center">
+                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">前台預覽</h1>
+                        <p className="mt-2 text-gray-500">點擊下方按鈕，模擬顧客預訂流程。</p>
+                    </div>
+                    <button onClick={() => setIsModalOpen(true)} className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-transform transform hover:scale-105">顯示預訂表單</button>
+                    {isModalOpen && (
+                        <div className="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="modal-content bg-white rounded-lg shadow-xl w-full max-w-2xl p-8 space-y-6 relative">
+                                <button onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                                <h2 className="text-2xl font-bold text-gray-800">諮詢表單</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">稱謂*</label><select className="w-full p-2 border border-gray-300 rounded-md"><option>Mr.</option><option>Ms.</option></select></div>
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">姓名(同護照)*</label><input type="text" className="w-full p-2 border border-gray-300 rounded-md" /></div>
+                                    <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">電子信箱*</label><input type="email" className="w-full p-2 border border-gray-300 rounded-md" /></div>
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">成人</label><select className="w-full p-2 border border-gray-300 rounded-md"><option>1</option><option>2</option></select></div>
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">孩童</label><select className="w-full p-2 border border-gray-300 rounded-md"><option>0</option><option>1</option></select></div>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-700 mb-2">請選擇預計出發日</h3>
+                                    <div className="space-y-4">
+                                        {Array.from({ length: numberOfPreferences }).map((_, i) => (
+                                            <div key={i}>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">理想出發日 0{i+1}</label>
+                                                <DatePicker selectionMode="single" onSelect={(date) => handleDateSelect(i, date)} initialText="請選擇日期" displayValue={formatDate(selectedDates[i])} isDateEnabled={isDateEnabled} initialViewDate={initialViewDate} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex justify-end"><button className="px-6 py-2.5 bg-green-600 text-white font-semibold rounded-lg shadow-sm hover:bg-green-700">確認送出</button></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        
+        // --- Main Application Component ---
+        const App = () => {
+            const [restrictionType, setRestrictionType] = useState('range');
+            const [mainRange, setMainRange] = useState({ start: null, end: null });
+            const [singleDate, setSingleDate] = useState(null);
+            const [multiRanges, setMultiRanges] = useState([]);
+            const [preferences, setPreferences] = useState([true, true, true]);
+
+            const handleMainRangeSelect = (start, end) => setMainRange({ start, end });
+            const handleMultiRangeSelect = (start, end) => setMultiRanges(prev => [...prev, { start, end, id: Date.now() }].sort((a,b) => a.start - b.start));
+            const removeMultiRange = (id) => setMultiRanges(prev => prev.filter(r => r.id !== id));
+            const handlePreferenceChange = (index) => {
+                const newPrefs = [...preferences];
+                newPrefs[index] = !newPrefs[index];
+                if (newPrefs.filter(Boolean).length > 0) setPreferences(newPrefs);
+            };
+            
+            const mainRangeDisplay = mainRange.start && mainRange.end ? `${formatDate(mainRange.start)} → ${formatDate(mainRange.end)}` : null;
+            const singleDateDisplay = singleDate ? formatDate(singleDate) : null;
+            const earliestMultiRangeDate = multiRanges.length > 0 ? multiRanges[0].start : null;
+            
+            const settingsForPreview = { restrictionType, mainRange, singleDate, multiRanges, preferences };
+
+            return (
+                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+                    {/* --- Backend Panel --- */}
+                    <div className="w-full bg-white rounded-2xl shadow-lg p-6 sm:p-10 space-y-8">
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">後台設定</h1>
+                            <p className="mt-2 text-gray-500">請為此商品設定前端旅客可預訂的日期規則與偏好數量。</p>
+                        </div>
+                        <hr/>
+                        <div className="space-y-4">
+                            <h2 className="text-lg font-semibold text-gray-700">1. 選擇日期限制類型</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {['特定日期區間', '單一限定日期', '多組獨立日期'].map((label, idx) => {
+                                    const value = ['range', 'single', 'multiple'][idx];
+                                    return <label key={value} className="flex items-center p-4 border rounded-lg cursor-pointer transition-all has-[:checked]:bg-blue-50 has-[:checked]:border-blue-500 has-[:checked]:ring-2 has-[:checked]:ring-blue-200"><input type="radio" name="date_type" value={value} checked={restrictionType === value} onChange={() => setRestrictionType(value)} className="form-radio h-5 w-5 text-blue-600" /><span className="ml-4 text-gray-700 font-medium">{label}</span></label>;
+                                })}
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            <h2 className="text-lg font-semibold text-gray-700">2. 設定可售日期</h2>
+                            {restrictionType === 'range' && (
+                                <div className="p-5 bg-gray-50 rounded-lg border">
+                                    <p className="text-sm text-gray-600 mb-4">旅客將可以在您指定的連續日期範圍內選擇出行日期。設定後，前台日曆將預設從您選擇的開始月份顯示。</p>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">選擇日期區間</label>
+                                    <DatePicker onSelect={handleMainRangeSelect} initialText="選擇開始與結束日期" displayValue={mainRangeDisplay} initialViewDate={mainRange.start} />
+                                </div>
+                            )}
+                            {restrictionType === 'single' && (
+                                <div className="p-5 bg-gray-50 rounded-lg border">
+                                    <p className="text-sm text-gray-600 mb-4">此行程僅限特定一日可出發。設定後，前台日曆將預設顯示此日期所在月份。</p>
+                                    <div className="max-w-xs"><label className="block text-sm font-medium text-gray-700 mb-1">指定日期</label><DatePicker selectionMode="single" onSelect={setSingleDate} initialText="請選擇一個日期" displayValue={singleDateDisplay} initialViewDate={singleDate} /></div>
+                                </div>
+                            )}
+                            {restrictionType === 'multiple' && (
+                                <div className="p-5 bg-gray-50 rounded-lg border">
+                                    <p className="text-sm text-gray-600 mb-4">您可以新增多個不連續的日期或區間。設定後，前台可選擇的日期必須在這些區間內，日曆也將預設從最早的日期月份開始顯示。</p>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">新增可售日期／區間</label>
+                                    <DatePicker onSelect={handleMultiRangeSelect} initialText="點擊此處打開月曆..." initialViewDate={earliestMultiRangeDate} />
+                                    <div className="mt-4 p-4 min-h-[80px] bg-white border rounded-md flex flex-wrap gap-3 items-start">
+                                        {multiRanges.length === 0 ? <span className="text-gray-400">尚未新增任何日期...</span> : multiRanges.map(range => <div key={range.id} className="date-tag bg-blue-100 text-blue-800 text-sm font-semibold flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full"><span>{range.start.getTime() === range.end.getTime() ? formatDate(range.start) : `${formatDate(range.start)} ~ ${formatDate(range.end)}`}</span><button onClick={() => removeMultiRange(range.id)} type="button" className="w-5 h-5 bg-blue-200 text-blue-600 rounded-full flex items-center justify-center hover:bg-blue-300"><svg className="w-3 h-3" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div>)}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-4">
+                            <h2 className="text-lg font-semibold text-gray-700">3. 設定旅客偏好日期數量</h2>
+                            <p className="text-sm text-gray-600">控制旅客在前台一次可選擇的日期志願數量，最少需保留一項。</p>
+                            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                                {preferences.map((isChecked, index) => <label key={index} className={classNames('inline-flex items-center', preferences.filter(Boolean).length === 1 && isChecked && 'opacity-70 cursor-not-allowed')}><input type="checkbox" checked={isChecked} onChange={() => handlePreferenceChange(index)} disabled={preferences.filter(Boolean).length === 1 && isChecked} className="form-checkbox h-5 w-5 text-blue-600 rounded border-gray-300"/><span className="ml-3 text-gray-700">偏好 {index + 1}</span></label>)}
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" className="px-6 py-2.5 bg-gray-200 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-300">取消</button>
+                            <button type="submit" className="px-8 py-2.5 bg-green-600 text-white font-semibold rounded-lg shadow-sm hover:bg-green-700">儲存設定</button>
+                        </div>
+                    </div>
+                    {/* --- Frontend Panel --- */}
+                    <FrontendPreview settings={settingsForPreview} />
+                </div>
+            );
+        };
+        
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+
